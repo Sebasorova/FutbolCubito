@@ -1,0 +1,115 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run.
+on:
+  # Triggers the workflow on push or pull request events but only for the master branch
+  push:
+    branches: [ master, development ]
+  pull_request:
+    branches: [ master, development ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  Build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v1
+        with:
+          java-version: '17'
+
+      - name: Cache Spigot Dependencies
+        id: cache-spigot-dependencies
+        uses: actions/cache@v2
+        with:
+          path: /home/runner/.m2/repository/org/spigotmc
+          key: spigot-dependency
+
+      - name: Validate Spigot Dependencies
+        run: |
+          test -f ~/.m2/repository/org/spigotmc/spigot/1.16.4-R0.1-SNAPSHOT/spigot-1.16.4-R0.1-SNAPSHOT.jar && echo "DEPENDENCIES=true" >> $GITHUB_ENV || echo "DEPENDENCIES=false" >> $GITHUB_ENV
+
+      - name: Build Spigot Dependencies
+        if: ${{ env.DEPENDENCIES != 'true' }}
+        run: |
+          mkdir -p ~/.m2/repository/org/spigotmc/
+          docker build --target dependencies-jdk8 -t blockball-dependencies-jdk8 .
+          docker create --name blockball-dependencies-jdk8 blockball-dependencies-jdk8 bash
+          docker cp blockball-dependencies-jdk8:/root/.m2/repository/org/spigotmc ~/.m2/repository/org/
+          docker rm -f blockball-dependencies-jdk8
+          docker build --target dependencies-jdk17 -t blockball-dependencies-jdk17 .
+          docker create --name blockball-dependencies-jdk17 blockball-dependencies-jdk17 bash
+          docker cp blockball-dependencies-jdk17:/root/.m2/repository/org/spigotmc ~/.m2/repository/org/
+          docker rm -f blockball-dependencies-jdk17
+
+      - name: Build Java Application
+        run: |
+          chmod +x gradlew
+          wget "https://jitpack.io/com/github/MilkBowl/VaultAPI/1.7/VaultAPI-1.7.jar"
+          mvn install:install-file -Dfile=VaultAPI-1.7.jar -DgroupId=net.milkbowlvault -DartifactId=VaultAPI -Dversion=1.7 -Dpackaging=jar
+          ./gradlew build pluginJar
+          echo "RELEASE_VERSION=$(./gradlew -q printVersion)" >> $GITHUB_ENV
+
+      - name: Create Github Release
+        if: "contains(github.event.head_commit.message, '--release') && contains(github.ref, 'master')"
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          body: "This release was automatically created by Github Actions. Please wait until the author manually sets the patchnotes for this release."
+          tag_name: ${{ env.RELEASE_VERSION }}
+          release_name: Release ${{ env.RELEASE_VERSION }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Bukkit Release to Github
+        if: "contains(github.event.head_commit.message, '--release') && contains(github.ref, 'master')"
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: /home/runner/work/BlockBall/BlockBall/blockball-bukkit-plugin/build/libs/blockball-bukkit-plugin-${{ env.RELEASE_VERSION }}.jar
+          asset_name: BlockBall.jar
+          asset_content_type: application/jar
+
+  Documentation:
+    runs-on: ubuntu-latest
+    if: "contains(github.ref, 'master')"
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+          architecture: 'x64'
+
+      - name: Build Documentation
+        run: |
+          git pull
+          git config --global user.email "shynixn@email.com" && git config --global user.name "Shynixn CI Actions"
+          sudo apt-get install python3-pip
+          sudo apt-get install python3-setuptools
+          sudo pip3 install https://github.com/Shynixn/sphinx_rtd_theme/releases/download/C1.0/sphinx_rtd_theme.zip
+          sudo pip3 install sphinx==6.2.1 # 7.x.x has got a bug regarding styles https://github.com/kivy/kivy/issues/8230
+          rm -rf docs/build
+          rm -rf docs/apidocs
+          mkdir -p docs/apidocs
+          chmod +x gradlew
+          ./gradlew generateJavaDocPages > /dev/null
+          sudo python3 -msphinx -M html docs/source docs/build
+          git add docs
+          git add -f docs/build
+          git commit --message "Automatic CI Documentation."
+          git push --quiet https://Shynixn:${{ secrets.GITHUB_TOKEN }}@github.com/SebastianSoftware/FutbolCubito.git HEAD:master
