@@ -63,7 +63,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
         with:
           body: "This release was automatically created by Github Actions. Please wait until the author manually sets the patchnotes for this release."
           tag_name: ${{ env.RELEASE_VERSION }}
@@ -75,7 +75,7 @@ jobs:
         if: "contains(github.event.head_commit.message, '--release') && contains(github.ref, 'master')"
         uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: /home/runner/work/BlockBall/BlockBall/blockball-bukkit-plugin/build/libs/blockball-bukkit-plugin-${{ env.RELEASE_VERSION }}.jar
@@ -112,4 +112,4 @@ jobs:
           git add docs
           git add -f docs/build
           git commit --message "Automatic CI Documentation."
-          git push --quiet https://Shynixn:${{ secrets.GITHUB_TOKEN }}@github.com/SebastianSoftware/FutbolCubito.git HEAD:master
+          git push --quiet https://Shynixn:${{ secrets.GIT_TOKEN }}@github.com/SebastianSoftware/FutbolCubito.git HEAD:master
